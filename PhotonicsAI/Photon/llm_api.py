@@ -110,7 +110,90 @@ except FileNotFoundError:
 
 LOCATION='us-east5'
 
+
+def _resolved_openai_base_url() -> str | None:
+    """Return the configured OpenAI base URL (proxy) or None for the default.
+
+    Reads PhotonicsAI.config.CONF.openai_base_url first, then OPENAI_BASE_URL
+    from the environment. Empty string is treated as unset.
+    """
+    return (CONF.openai_base_url or os.getenv("OPENAI_BASE_URL") or None)
+
+
+def _openai_client() -> OpenAI:
+    """Construct an OpenAI SDK client honoring an optional proxy base URL.
+
+    When OPENAI_BASE_URL is set (e.g. ``https://api.gptsapi.net/v1``), the
+    same client is reused for every OpenAI-compatible call (GPT, o-series,
+    pydantic parse, and Claude via :func:`call_anthropic` proxy path).
+    """
+    return OpenAI(
+        api_key=CONF.openai_api_key or os.getenv("OPENAI_API_KEY"),
+        base_url=_resolved_openai_base_url(),
+    )
+
+
+def _use_openai_compat_for_claude() -> bool:
+    """Route Claude through the OpenAI-compatible proxy when one is set.
+
+    Third-party gateways like GPTsAPI only implement
+    ``/v1/chat/completions`` and do **not** expose Anthropic's native
+    ``/v1/messages`` endpoint, so we fall back to the chat-completions
+    shape (no extended-thinking blocks) whenever a proxy URL is present.
+    """
+    return _resolved_openai_base_url() is not None
+
+
+def _call_anthropic_via_openai_compat(prompt, sys_prompt, model):
+    """Call a Claude model through an OpenAI-compatible proxy.
+
+    Trade-off: the proxy returns a flat ``choices[0].message.content``
+    string, so Anthropic's extended-thinking budget and content-block
+    streaming are not available here. Token tracking falls back to
+    ``response.usage.{prompt,completion}_tokens`` (and tiktoken if the
+    proxy does not echo a usage object).
+    """
+    client = _openai_client()
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0.1,
+        max_tokens=16000,
+        messages=[
+            {"role": "system", "content": sys_prompt},
+            {"role": "user", "content": prompt},
+        ],
+    )
+
+    try:
+        input_tokens = (
+            response.usage.prompt_tokens
+            if hasattr(response, "usage") and hasattr(response.usage, "prompt_tokens")
+            else 0
+        )
+        output_tokens = (
+            response.usage.completion_tokens
+            if hasattr(response, "usage")
+            and hasattr(response.usage, "completion_tokens")
+            else 0
+        )
+        if input_tokens == 0:
+            input_tokens = len(tokenizer.encode(prompt + sys_prompt))
+        if output_tokens == 0:
+            output_tokens = len(tokenizer.encode(response.choices[0].message.content))
+        add_token_usage(input_tokens, output_tokens, is_cached=False)
+    except Exception as e:
+        print(f"Token tracking error in call_anthropic (proxy): {e}")
+
+    response_text = response.choices[0].message.content
+    with open("anthropic_response.yml", "w") as outfile:
+        yaml.dump(response_text, outfile)
+    return response_text
+
+
 def call_anthropic(prompt, sys_prompt, model='claude-3-7-sonnet-20250219'):
+
+    if _use_openai_compat_for_claude():
+        return _call_anthropic_via_openai_compat(prompt, sys_prompt, model)
 
     client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
     
@@ -553,7 +636,7 @@ def call_openai(prompt, sys_prompt="", model="gpt-4o", n_completion=1):
     """
     prompt = truncate_prompt(prompt)
 
-    client = OpenAI(api_key=CONF.openai_api_key or os.getenv("OPENAI_API_KEY"))
+    client = _openai_client()
     response = client.chat.completions.create(
         model=model,
         temperature=0.1,
@@ -604,7 +687,7 @@ def call_openai_reasoning(prompt, model="o1-preview"):
     """
     # prompt = truncate_prompt(prompt)
 
-    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    client = _openai_client()
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -644,7 +727,7 @@ def callgpt_pydantic(prompt, sys_prompt, pydantic_model):
         sys_prompt: The system prompt to send to the model.
         pydantic_model: The pydantic model to use for the completion.
     """
-    client = OpenAI()
+    client = _openai_client()
 
     completion = client.beta.chat.completions.parse(
         model="gpt-4o-2024-08-06",

@@ -32,6 +32,7 @@ class Path:
 class Config(BaseSettings):
     model_config = SettingsConfigDict(env_file=dotenv_path, extra="ignore")
     openai_api_key: str = ""
+    openai_base_url: str = ""
 
 
 PATH = Path()
