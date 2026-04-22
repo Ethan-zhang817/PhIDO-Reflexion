@@ -1,0 +1,144 @@
+# =============================================================================
+# Python
+# =============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage / type checking caches
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Translations
+*.mo
+*.pot
+
+# =============================================================================
+# Virtual environments
+# =============================================================================
+.env
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.python-version
+
+# =============================================================================
+# Jupyter / IPython
+# =============================================================================
+.ipynb_checkpoints/
+profile_default/
+ipython_config.py
+*.ipynb_checkpoints
+
+# =============================================================================
+# IDE / editor
+# =============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.spyderproject
+.spyproject
+.ropeproject
+
+# =============================================================================
+# OS
+# =============================================================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# =============================================================================
+# PhIDO project specific
+# =============================================================================
+
+# Runtime logs (the directory itself is needed; ignore its contents)
+PhotonicsAI/log/*
+!PhotonicsAI/log/.gitkeep
+
+# Build artifacts created by PhotonicsAI/config.py (PATH.build.mkdir)
+/build/
+
+# Streamlit local state
+.streamlit/secrets.toml
+
+# DRC artifacts (the committed report.lydrb is kept; ignore newly generated ones)
+PhotonicsAI/Photon/drc/*.lydrb.bak
+PhotonicsAI/Photon/drc/*.tmp
+
+# Generated layouts / netlists / temp circuit files
+# (Comment out lines below if you intentionally want to commit any of these.)
+*.gds
+*.oas
+*.lyrdb
+PhotonicsAI/Photon/CIRCUIT_*.yaml
+!PhotonicsAI/Photon/CIRCUIT_wdd0.yaml
+
+# Matplotlib / pyplot rendered output if dropped at repo root
+matplotlib_*.png
+
+# Core dumps from KLayout etc.
+core
+core.*
+vgcore.*
+
+# =============================================================================
+# Secrets — NEVER commit
+# =============================================================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.yaml
+credentials.json

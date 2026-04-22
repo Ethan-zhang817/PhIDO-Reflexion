@@ -1,0 +1,80 @@
+---
+description: Conventions for adding/editing photonic components in DesignLibrary
+globs: PhotonicsAI/KnowledgeBase/DesignLibrary/**/*.py
+alwaysApply: false
+---
+
+# DesignLibrary 元件规范
+
+每个元件 = **一个 `.py` 文件**，必须同时提供 **gdsfactory 几何**与 **sax S 参数模型**，并以结构化文档头描述元数据（LLM 在 retrieval / template matching 时会读取它）。
+
+## 文件骨架（参考 `straight.py`）
+
+```python
+"""Component one-line summary.
+
+---
+Name: <human-friendly name>
+Description: <短描述>
+ports: <NxM>            # e.g. 1x1, 2x2
+NodeLabels:
+    - passive | active | source | detector
+Bandwidth: 100 nm
+Args:
+    -length: <unit & meaning>
+"""
+
+import gdsfactory as gf
+import numpy as np
+import sax
+
+
+@gf.cell
+def my_component(
+    length: float = 10.0,
+    cross_section: gf.typings.CrossSectionSpec = "strip",
+) -> gf.Component:
+    """The component."""
+    c = gf.Component()
+    # ... build geometry ...
+    c.add_port("o1", port=...)
+    c.add_port("o2", port=...)
+    c.flatten()
+    return c
+
+
+def get_model(model="fdtd"):
+    """Dispatch by model type; key MUST equal the @gf.cell function name."""
+    if model == "ana":
+        return {"my_component": get_model_ana}
+    if model == "fdtd":
+        return {"my_component": get_model_fdtd}
+
+
+def get_model_fdtd(wl=1.55, length=10.0) -> sax.SDict:
+    return sax.reciprocal({("o1", "o2"): ...})
+
+
+def get_model_ana(wl=1.55, length=10.0) -> sax.SDict:
+    return sax.reciprocal({("o1", "o2"): ...})
+```
+
+## 强约束
+
+- **端口名固定为 `o1, o2, ...`**（电学端口用 `e1, e2, ...`），与上层 schematic / DSL 生成保持一致
+- `get_model()` 字典的 **key 必须和 `@gf.cell` 装饰的函数同名**——SAX 用它做 netlist 元件查找
+- 装饰器**必须用 `@gf.cell`**（缓存 + hash），不要用裸函数返回 Component
+- 几何函数末尾**必须 `c.flatten()`**（避免 hierarchical layout 在 DRC 时被误判）
+- 复用基础元件时通过 `from PhotonicsAI.KnowledgeBase.DesignLibrary import bend_euler, straight` 导入，**不要复制粘贴几何代码**
+- 需要 FDTD 数据的元件用 `from PhotonicsAI.Photon.utils import get_file_path, model_from_npz` 加载 `KnowledgeBase/FDTD/*.npz`
+
+## 添加新元件后还要做
+
+1. 在 `PhotonicsAI/Photon/templates.yaml` 注册模板（如果要被 step-by-step 选中）
+2. 在 `PhotonicsAI/Photon/prompts.yaml` 添加 LLM 描述（component selection 用）
+3. 文件 `if __name__ == "__main__":` 块写一个最小可运行示例（用于人工验证）
+
+## 命名约定
+
+- 文件名 = 函数名 = snake_case：`mzi_2x2_heater_tin_cband.py` → `def mzi_2x2_heater_tin_cband(...)`
+- 私有/中间组件以 `_` 开头：`_mmi1x2.py`、`_directional_coupler.py`

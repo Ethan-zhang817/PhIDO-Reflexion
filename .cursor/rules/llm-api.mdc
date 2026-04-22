@@ -1,0 +1,44 @@
+---
+description: Conventions for adding/editing LLM providers and prompts
+globs: PhotonicsAI/Photon/{llm_api.py,prompts.yaml,templates.yaml}
+alwaysApply: false
+---
+
+# LLM 集成规范
+
+`llm_api.py` 是所有 LLM 提供商的统一入口，被 `webapp.py` 通过 `from PhotonicsAI.Photon import llm_api` 调用。
+
+## 已支持的提供商与所需环境变量
+
+| 提供商     | 环境变量                | 备注                                   |
+|-----------|------------------------|----------------------------------------|
+| OpenAI    | `OPENAI_API_KEY`       | **必填**，用于 pydantic 格式化 entity |
+| Anthropic | `ANTHROPIC_API_KEY`    | Claude 3/4 系列                        |
+| Google    | `GOOGLEGENAI_API_KEY`  | Gemini 1.5/2.x（库已 deprecated 但仍用）|
+| DeepSeek  | `DEEPSEEK_API_KEY`     | `deepseek-reasoner`                   |
+| NVIDIA    | `NVIDIA_API_KEY`       | NIM 上的 nemotron 系列               |
+
+> 即使主流程切换到非 OpenAI 模型，**`OPENAI_API_KEY` 仍必须设置**——pydantic schema 校验阶段写死调用 GPT。
+
+## 添加新提供商
+
+1. 在 `llm_api.py` 顶部 import 客户端 SDK
+2. 增加 `def call_<provider>(prompt, model, ...)`，要点：
+   - 用 `@backoff.on_exception(backoff.expo, RateLimitError, max_tries=...)` 包裹（已有装饰器模式）
+   - 把 token 用量统一通过 `add_token_usage(input_tokens, output_tokens)` 记账（streamlit 会显示）
+   - 流式响应参考 `anthropic` 的实现（最近一次 commit 增加了 anthropic streaming）
+3. 在 `webapp.py` 顶部的模型下拉选项里加入新模型 ID
+4. 如果模型有特殊 prompt 格式（如 `<think>` 标签），在 `prompts.yaml` 增加对应小节
+
+## prompts.yaml / templates.yaml 规则
+
+- **不要直接拼接 f-string 拼出整段 prompt**——所有 system / user 模板都集中在 `prompts.yaml` 的 YAML 块里，代码侧只做参数替换
+- 修改 prompt 时要更新对应步骤名（`extract_entities`、`select_components`、`generate_schematic`、`generate_layout`、`run_drc`），命名要和 `webapp.py` 中的调用点一致
+- `templates.yaml` 是**电路模板库**（step-by-step 模式选择器用），新增模板必须同时在 `KnowledgeBase/DesignLibrary/` 有对应元件可用
+
+## 已知陷阱
+
+- `tiktoken.get_encoding("o200k_base")` 在模块顶层 import 时调用，**首次需要联网**下载编码文件；离线环境下要预先 cache
+- `google.generativeai` 的 `FutureWarning` 暂不处理（迁移到 `google.genai` 是单独任务）
+- Anthropic streaming 响应的 stop reason 要区分 `end_turn` 与 `max_tokens`，最近一次 fix 处理了 Gemini 把 stop code 误判为 error 的问题——**新增提供商时务必单独做 stop-code 测试**
+- `dotenv` 加载位置要保持在 `from PhotonicsAI.config import CONF, PATH` **之后**，否则 `.env` 不会被 load

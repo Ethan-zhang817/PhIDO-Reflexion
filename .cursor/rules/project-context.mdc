@@ -1,0 +1,51 @@
+---
+description: PhIDO-Reflexion project context, environment, and global conventions
+alwaysApply: true
+---
+
+# PhIDO-Reflexion 项目上下文
+
+PhIDO（Photonic Intelligent Design and Optimization）是一个用 LLM 自动化设计**光子集成电路（PIC）**的 Streamlit Web 应用。流程：自然语言描述 → 实体抽取 → 元件选择 → 电路 DSL → GDS 版图 + SAX 仿真 → KLayout DRC。
+
+## 关键依赖与版本约束（不要随便升级）
+
+- **Python 3.11**（pyproject 要求 `>=3.11`，已锁定的 jax 0.4.34 / gdsfactory 8.8.5 不支持太新的 Python）
+- `gdsfactory==8.8.5`、`jax==0.4.34`、`jaxlib==0.4.34`、`tidy3d>=2.0.0`
+- **`kfactory==0.21.1`**（必须覆盖 gdsfactory 自带的 0.19.2，README 明确要求**忽略** `pip` 抛出的 `gdsfactory 8.8.5 requires kfactory[ipy]==0.19.2` 冲突）
+- 系统级：`graphviz` + `libgraphviz-dev`（pygraphviz 需要）、`klayout` 二进制（DRC 步骤 `subprocess` 调用，仅 pip 装的 `klayout` Python 包不够）
+
+## 运行项目
+
+每次启动**必须**先：
+
+```bash
+conda activate phido-reflexion        # 或对应虚拟环境
+cd /home/hesai/workspace/PhIDO-Reflexion
+export PYTHONPATH='.'                 # 否则 from PhotonicsAI.* 导入会失败
+streamlit run PhotonicsAI/Photon/webapp.py
+```
+
+## 顶层目录速记
+
+- `PhotonicsAI/Photon/` — 应用核心（`webapp.py` 入口，`llm_api.py` LLM 集成，`utils.py`、`DemoPDK.py`、`prompts.yaml`、`templates.yaml`、`drc/`）
+- `PhotonicsAI/KnowledgeBase/DesignLibrary/` — 光子元件库，每个文件一个元件，必须同时提供 gdsfactory 几何 + sax S 参数模型
+- `PhotonicsAI/KnowledgeBase/FDTD/` — 预计算 FDTD 数据
+- `PhotonicsAI/log/` — 运行日志（已 gitignore，但目录必须存在，否则 logger 报错）
+- `build/` — `config.py` 在 import 时 `mkdir`，已 gitignore
+
+## 配置 & 密钥
+
+- `.env` 放在仓库根目录，**严禁提交**（`.gitignore` 已保护）
+- `OPENAI_API_KEY` **必填**（PhIDO 用 GPT 做 pydantic 格式化，即使主模型选别家也需要）
+- 其余可选：`ANTHROPIC_API_KEY`、`GOOGLEGENAI_API_KEY`、`DEEPSEEK_API_KEY`、`NVIDIA_API_KEY`
+
+## 代码风格
+
+仓库已有 `pyproject.toml` 中的 `ruff` 配置（启用 B/C/E/F/I/T10/UP/W，忽略 E501/B008/C901/B905/C408），编辑 Python 时遵循之；不要新增叙述性注释（如 `# import xxx`、`# return result`）。
+
+## 已知陷阱
+
+- `google.generativeai` 已 deprecated，会打印 FutureWarning，**保持现状**（迁移 `google.genai` 是独立任务）
+- `tiktoken.get_encoding("o200k_base")` 在 `llm_api.py` 模块顶层调用，首次 import **需要联网**下载编码
+- DRC 在 KLayout 二进制缺失时会打印 `Error: KLayout not found` 然后 `return`，不会让整个 app 挂掉
+- 修改 `PhotonicsAI/Photon/CIRCUIT_*.yaml` 时只有 `CIRCUIT_wdd0.yaml` 是示例需要保留，其他都是运行时生成
