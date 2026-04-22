@@ -34,11 +34,20 @@ anthropic>=0.5.0
 groq>=0.3.0
 fireworks>=0.5.0
 replicate>=0.8.0
+# NOTE: langchain* and haystack-ai are kept for backward compat with the legacy
+# Photon module but are not actively used. The PhotonicsAI/graph PoC depends
+# only on langchain-core (transitive) + langgraph below.
 langchain>=0.0.300
 langchain-openai>=0.0.1
 langchain-community>=0.0.1
 google-generativeai
 deepseek_tokenizer
+
+# LangGraph + Reflexion PoC (PhotonicsAI/graph)
+langgraph>=0.2
+langgraph-checkpoint-sqlite>=2.0.0  # optional; PoC falls back to MemorySaver if missing
+langchain-core>=0.3
+langsmith>=0.1.100  # optional, only used when LANGSMITH_API_KEY is set
 
 # Development and utilities
 ipython>=8.0.0

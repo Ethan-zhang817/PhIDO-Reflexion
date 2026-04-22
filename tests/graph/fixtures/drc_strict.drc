@@ -1,0 +1,26 @@
+# Strict DRC fixture used by tests/graph/test_graph_loop.py.
+# wmin / gmin are dialed up to 0.5 um so virtually any non-trivial
+# layout will trigger Si_space violations on the first round, giving
+# the Reflexion loop something to react to.
+
+source($input_gds)
+report("PhIDO DRC (strict fixture)", $report)
+
+tiles(100)
+tile_borders(2)
+threads(3)
+
+si_rib = input(1, 0)
+
+wmin = 0.5
+gmin = 0.5
+angle_limit = 90
+
+si_rib.width(wmin, angle_limit(angle_limit)).output(
+    "Si_width",
+    "Si minimum feature size violation; min %.3f um" % wmin,
+)
+si_rib.space(gmin, angle_limit(angle_limit)).output(
+    "Si_space",
+    "Si minimum space violation; min %.3f um" % gmin,
+)

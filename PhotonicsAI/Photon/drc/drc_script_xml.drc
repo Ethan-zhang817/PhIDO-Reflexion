@@ -1,0 +1,38 @@
+# DRC script for the PhIDO LangGraph Reflexion PoC.
+#
+# Identical rule set to the legacy drc_script.drc but
+#   1. emits an XML report database (KLayout's `.lyrdb` format) so that
+#      PhotonicsAI/graph/adapters/drc_parser.py can parse it deterministically;
+#   2. accepts wmin / gmin overrides via the `-rd` CLI flag so that test
+#      fixtures can dial the rules to be deliberately strict.
+#
+# Usage (from drc_adapter.run_drc_structured):
+#   klayout -b -r drc_script_xml.drc \
+#           -rd input_gds=<path>.gds \
+#           -rd report=<path>.lyrdb \
+#           -rd wmin=0.13 -rd gmin=0.13
+
+source($input_gds)
+report("PhIDO DRC", $report)
+
+tiles(100)
+tile_borders(2)
+threads(3)
+
+######## Input the layers ########
+si_rib = input(1, 0)
+
+# Default values match the legacy script; can be overridden from the CLI.
+wmin_val = ($wmin || 0.13).to_f
+gmin_val = ($gmin || 0.13).to_f
+angle_limit = 90
+
+######## Width and gap checks ########
+si_rib.width(wmin_val, angle_limit(angle_limit)).output(
+    "Si_width",
+    "Si minimum feature size violation; min %.3f um" % wmin_val,
+)
+si_rib.space(gmin_val, angle_limit(angle_limit)).output(
+    "Si_space",
+    "Si minimum space violation; min %.3f um" % gmin_val,
+)

@@ -1,0 +1,28 @@
+doc:
+  name: easy_passthrough
+  title: Single-MZI passthrough that lays out cleanly under default DRC.
+
+nodes:
+  N1:
+    component: mzi_2x2_heater_tin_cband
+    params:
+      length: 100
+      delta_length: 50
+    properties:
+      ports: 2x2
+    placement:
+      x: 0
+      y: 0
+      rotation: 0
+
+edges: {}
+
+ports:
+  o1: N1,o1
+  o2: N1,o2
+  o3: N1,o3
+  o4: N1,o4
+
+properties:
+  ports: 2x2
+  pdk: cband

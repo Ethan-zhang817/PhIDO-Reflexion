@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<report-database>
+ <description>PhIDO DRC (test fixture, empty)</description>
+ <original-file/>
+ <generator/>
+ <top-cell>top_cell</top-cell>
+ <tags/>
+ <cells>
+  <cell>
+   <name>top_cell</name>
+   <variant/>
+  </cell>
+ </cells>
+ <categories>
+  <category>
+   <name>Si_width</name>
+   <description>Si minimum feature size violation; min 0.130</description>
+  </category>
+  <category>
+   <name>Si_space</name>
+   <description>Si minimum space violation; min 0.130</description>
+  </category>
+ </categories>
+ <items>
+ </items>
+</report-database>

@@ -1,0 +1,59 @@
+doc:
+  name: dense_wdm_violating
+  title: 1x4 cWDM tree pulled tight enough to trigger Si_space DRC violations.
+
+nodes:
+  N1:
+    component: mzi_1x2_pindiode_cband
+    params:
+      length: 100
+      delta_length: 200
+    properties:
+      ports: 1x2
+    placement:
+      x: 0
+      y: 0
+      rotation: 0
+  N2:
+    component: mzi_1x2_pindiode_cband
+    params:
+      length: 100
+      delta_length: 100
+    properties:
+      ports: 1x2
+    placement:
+      x: 200
+      y: 0
+      rotation: 0
+  N3:
+    component: mzi_1x2_pindiode_cband
+    params:
+      length: 100
+      delta_length: 100
+    properties:
+      ports: 1x2
+    placement:
+      x: 200
+      y: 1
+      rotation: 0
+
+edges:
+  E1:
+    link: N1,o2: N2,o1
+    properties:
+      type: route
+  E2:
+    link: N1,o3: N3,o1
+    properties:
+      type: route
+
+ports:
+  o1: N1,o1
+  o2: N2,o2
+  o3: N2,o3
+  o4: N3,o2
+  o5: N3,o3
+
+properties:
+  ports: 1x4
+  pdk: cband
