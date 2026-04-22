@@ -43,6 +43,14 @@ streamlit run PhotonicsAI/Photon/webapp.py
 
 仓库已有 `pyproject.toml` 中的 `ruff` 配置（启用 B/C/E/F/I/T10/UP/W，忽略 E501/B008/C901/B905/C408），编辑 Python 时遵循之；不要新增叙述性注释（如 `# import xxx`、`# return result`）。
 
+## Git 提交规范
+
+- **提交信息一律使用中文**（标题 + 正文都用中文撰写）
+- 标题：动词开头、简洁概括「做了什么」，不超过 50 字符，结尾不加句号
+  - 示例：`新增 .gitignore 与 Cursor 规则`、`修复 Gemini 流式响应误判 stop code 的问题`、`重构 llm_api 的 token 计数逻辑`
+- 正文（可选）：与标题之间空一行，用项目符号 `-` 列出关键变更点，重点说明「为什么」而非「怎么做」
+- 与用户沟通（chat 回复）也保持中文，除非用户明确切换语言
+
 ## 已知陷阱
 
 - `google.generativeai` 已 deprecated，会打印 FutureWarning，**保持现状**（迁移 `google.genai` 是独立任务）
