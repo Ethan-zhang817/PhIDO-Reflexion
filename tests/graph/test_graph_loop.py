@@ -1,7 +1,7 @@
 """End-to-end loop test for the Reflexion subgraph.
 
 We avoid hitting any real LLM provider by monkeypatching
-``PhotonicsAI.graph.llm_runnables.invoke_llm``. Two scenarios are
+``PhotonicsAI.graph.nodes.designer.invoke_text``. Two scenarios are
 covered:
 
 1. **DRC fail then pass**: the executor returns a violating EdaReport
@@ -43,10 +43,10 @@ def fake_llm(monkeypatch):
         return responses.pop(0)
 
     monkeypatch.setattr(
-        "PhotonicsAI.graph.nodes.designer.invoke_llm", fake_invoke
+        "PhotonicsAI.graph.nodes.designer.invoke_text", fake_invoke
     )
     monkeypatch.setattr(
-        "PhotonicsAI.graph.nodes.reflector.invoke_llm", fake_invoke
+        "PhotonicsAI.graph.nodes.reflector.invoke_text", fake_invoke
     )
     return calls, responses
 
@@ -368,7 +368,7 @@ def test_designer_preserves_topology_for_routing_only_reflection(
         "properties": {},
     }
     monkeypatch.setattr(
-        "PhotonicsAI.graph.nodes.designer.invoke_llm",
+        "PhotonicsAI.graph.nodes.designer.invoke_text",
         lambda *_args, **_kwargs: (
             "doc:\n"
             "  title: 1x8 splitter\n"

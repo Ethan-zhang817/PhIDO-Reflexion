@@ -42,13 +42,14 @@ def test_map_pretemplate_to_draft_matches_original_shape():
 
 def _patch_real_legacy_steps(monkeypatch):
     from PhotonicsAI.Photon import DemoPDK, llm_api, utils
+    from PhotonicsAI.graph import legacy_openai_stages as graph_legacy
 
     monkeypatch.setattr(DemoPDK, "list_of_docs", ["mzi doc"], raising=False)
     monkeypatch.setattr(DemoPDK, "list_of_cnames", ["mzi_2x2_pn_diode"], raising=False)
     monkeypatch.setattr(
-        llm_api,
-        "entity_extraction",
-        lambda _prompt: {
+        graph_legacy,
+        "entity_extraction_with_model",
+        lambda _prompt, **_kwargs: {
             "title": "x",
             "brief_summary": "summary",
             "circuit_instructions": "cascade two blocks",
@@ -59,7 +60,11 @@ def _patch_real_legacy_steps(monkeypatch):
     class Match:
         match_list = [0]
 
-    monkeypatch.setattr(llm_api, "llm_search", lambda _query, _contexts: Match())
+    monkeypatch.setattr(
+        graph_legacy,
+        "llm_search_with_model",
+        lambda _query, _contexts, **_kwargs: Match(),
+    )
     monkeypatch.setattr(llm_api, "preschematic", lambda _pretemplate, _model: "graph g { N1 -- N2; }")
     monkeypatch.setattr(
         DemoPDK,

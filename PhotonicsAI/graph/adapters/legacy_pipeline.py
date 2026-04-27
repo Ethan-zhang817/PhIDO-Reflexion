@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from PhotonicsAI.graph.state import DEFAULT_LEGACY_STAGE_MODEL
+
 
 class LegacyPipelineError(RuntimeError):
     """Raised when the legacy schematic pipeline cannot produce a DSL."""
@@ -47,11 +49,11 @@ def map_pretemplate_to_draft(pretemplate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def extract_entities(user_prompt: str) -> dict[str, Any]:
-    """Run the original pydantic entity-extraction step."""
-    from PhotonicsAI.Photon import llm_api
+def extract_entities(user_prompt: str, *, model: str = DEFAULT_LEGACY_STAGE_MODEL) -> dict[str, Any]:
+    """Run the original pydantic entity-extraction step (graph uses configurable model)."""
+    from PhotonicsAI.graph.legacy_openai_stages import entity_extraction_with_model
 
-    result = llm_api.entity_extraction(user_prompt)
+    result = entity_extraction_with_model(user_prompt, model=model)
     if not isinstance(result, dict):
         raise LegacyPipelineError("entity_extraction did not return a mapping")
     if not result.get("components_list"):
@@ -59,15 +61,19 @@ def extract_entities(user_prompt: str) -> dict[str, Any]:
     return result
 
 
-def select_components(pretemplate: dict[str, Any]) -> list[str]:
+def select_components(
+    pretemplate: dict[str, Any], *, model: str = DEFAULT_LEGACY_STAGE_MODEL
+) -> list[str]:
     """Run the original component-search step for each extracted component."""
-    from PhotonicsAI.Photon import DemoPDK, llm_api
+    from PhotonicsAI.Photon import DemoPDK
+    from PhotonicsAI.graph.legacy_openai_stages import llm_search_with_model
 
     selected: list[str] = []
     docs = list(DemoPDK.list_of_docs)
     names = list(DemoPDK.list_of_cnames)
+
     for component_text in pretemplate.get("components_list", []):
-        search = llm_api.llm_search(str(component_text), docs)
+        search = llm_search_with_model(str(component_text), docs, model=model)
         matches = getattr(search, "match_list", []) or []
         if not matches:
             raise LegacyPipelineError(f"no component match for {component_text!r}")
@@ -206,7 +212,7 @@ def _repair_dot_if_preschematic_mismatch(session: AttrDict) -> None:
 def build_schematic_from_pretemplate(
     pretemplate: dict[str, Any],
     *,
-    model: str = "gpt-4o-mini",
+    model: str = DEFAULT_LEGACY_STAGE_MODEL,
     max_planarity_attempts: int = 4,
 ) -> tuple[dict[str, Any], AttrDict]:
     """Run the original schematic-generation path using a session-like object."""
@@ -260,15 +266,17 @@ def build_schematic_from_pretemplate(
     return session.p300_circuit_dsl, session
 
 
-def build_legacy_seed(user_prompt: str, *, model: str = "gpt-4o-mini") -> dict[str, Any] | None:
+def build_legacy_seed(
+    user_prompt: str, *, model: str = DEFAULT_LEGACY_STAGE_MODEL
+) -> dict[str, Any] | None:
     """Run the original-style PhIDO pipeline and return graph seed artifacts.
 
     Returns ``None`` when the old pipeline fails so the graph can transparently
     fall back to the normal Designer node.
     """
     try:
-        extracted = extract_entities(user_prompt)
-        selected_components = select_components(extracted)
+        extracted = extract_entities(user_prompt, model=model)
+        selected_components = select_components(extracted, model=model)
         selected_pretemplate = apply_component_selection(extracted, selected_components)
         draft = map_pretemplate_to_draft(selected_pretemplate)
         schematic, session = build_schematic_from_pretemplate(

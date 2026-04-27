@@ -29,6 +29,7 @@ from PhotonicsAI.graph.model_choices import DESIGNER_MODEL_CHOICES, REFLECTOR_MO
 from PhotonicsAI.graph.nodes.evaluator import evaluator_verdict
 from PhotonicsAI.graph.state import (
     DEFAULT_DESIGNER_MODEL,
+    DEFAULT_LEGACY_STAGE_MODEL,
     DEFAULT_MAX_RETRIES,
     DEFAULT_REFLECTOR_MODEL,
     initial_state,
@@ -569,6 +570,12 @@ def main() -> None:
             DESIGNER_MODEL_CHOICES,
             index=_select_index(DESIGNER_MODEL_CHOICES, DEFAULT_DESIGNER_MODEL),
         )
+        legacy_stage_model = st.selectbox(
+            "Legacy stage model",
+            DESIGNER_MODEL_CHOICES,
+            index=_select_index(DESIGNER_MODEL_CHOICES, DEFAULT_LEGACY_STAGE_MODEL),
+            help="用于原版多阶段链路（EE / 元件选型 / 原理图与 DOT），与 Reflexion 的 Designer/Reflector 独立。",
+        )
         reflector_model = st.selectbox(
             "Reflector model",
             REFLECTOR_MODEL_CHOICES,
@@ -639,6 +646,7 @@ def main() -> None:
             user_prompt=user_prompt,
             seed_circuit_dsl=seed_dsl,
             designer_model=designer_model,
+            legacy_stage_model=legacy_stage_model,
             reflector_model=reflector_model,
             max_retries=int(max_retries),
             require_drc_pass=bool(require_drc_pass),

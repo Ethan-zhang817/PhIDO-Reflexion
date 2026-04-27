@@ -1,6 +1,8 @@
 """Model id presets for the graph Streamlit UI (sidebar selectboxes).
 
-These strings are passed verbatim to :func:`PhotonicsAI.Photon.llm_api.call_llm`.
+These strings are passed verbatim to the graph LLM layer
+(:func:`PhotonicsAI.graph.llm.invoke_text`, which wraps
+:func:`PhotonicsAI.Photon.llm_api.call_llm`).
 When using an OpenAI-compatible proxy (e.g. set ``OPENAI_BASE_URL`` in ``.env`` to
 a vendor such as ``https://api.gptsapi.net/v1``), you must pick a model name that
 the upstream exposes for your key; the UI cannot enumerate remote catalogs.

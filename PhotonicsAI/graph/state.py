@@ -18,6 +18,7 @@ from PhotonicsAI.graph.adapters.eda_report import EdaReport
 
 DEFAULT_DESIGNER_MODEL = "gpt-4o-mini"
 DEFAULT_REFLECTOR_MODEL = "gpt-4o-mini"
+DEFAULT_LEGACY_STAGE_MODEL = "gpt-4o"
 DEFAULT_MAX_RETRIES = 3
 
 
@@ -95,6 +96,8 @@ class PhIDOState(TypedDict, total=False):
     # ---- Configuration ----------------------------------------------
     designer_model: str
     reflector_model: str
+    legacy_stage_model: str
+    """Model for the original multi-stage path (entity → selection → preschematic, etc.)."""
     require_drc_pass: bool
     """If True (default), evaluator *pass* requires DRC zero violations. If
     False, *pass* when GDS and SAX are ok; DRC is still run and shown."""
@@ -114,6 +117,7 @@ def initial_state(
     seed_circuit_dsl: Optional[dict] = None,
     designer_model: str = DEFAULT_DESIGNER_MODEL,
     reflector_model: str = DEFAULT_REFLECTOR_MODEL,
+    legacy_stage_model: str = DEFAULT_LEGACY_STAGE_MODEL,
     max_retries: int = DEFAULT_MAX_RETRIES,
     require_drc_pass: bool = True,
     thread_id: str = "",
@@ -142,6 +146,7 @@ def initial_state(
         human_input=None,
         designer_model=designer_model,
         reflector_model=reflector_model,
+        legacy_stage_model=legacy_stage_model,
         require_drc_pass=require_drc_pass,
         legacy_mode="",
         thread_id=thread_id,

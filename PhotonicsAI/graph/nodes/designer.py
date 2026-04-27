@@ -15,7 +15,7 @@ from typing import Any
 
 import yaml
 
-from PhotonicsAI.graph.llm_runnables import LLMCallError, invoke_llm
+from PhotonicsAI.graph.llm import LLMCallError, invoke_text
 from PhotonicsAI.graph.nodes._pdk_context import cells_block
 from PhotonicsAI.graph.state import PhIDOState
 
@@ -147,7 +147,7 @@ def designer_node(state: PhIDOState) -> dict:
 
     model = state.get("designer_model") or "gpt-4o-mini"
     try:
-        raw = invoke_llm(prompt, system_prompt="", model=model)
+        raw = invoke_text(prompt, system_prompt="", model=model)
     except LLMCallError as exc:
         return {
             "reflections": [

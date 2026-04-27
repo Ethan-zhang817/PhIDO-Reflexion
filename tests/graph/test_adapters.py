@@ -522,7 +522,7 @@ def test_state_initial_state_returns_expected_keys():
     assert s["user_prompt"] == "hello"
     assert s["reflections"] == []
     assert s["retry_count"] == 0
-    assert "designer_model" in s and "reflector_model" in s
+    assert "designer_model" in s and "reflector_model" in s and "legacy_stage_model" in s
 
 
 def test_graph_module_imports_without_langgraph_optional_extras():

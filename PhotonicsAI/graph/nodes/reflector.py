@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 from PhotonicsAI.graph.adapters.eda_report import EdaReport, summarize_report
-from PhotonicsAI.graph.llm_runnables import LLMCallError, invoke_llm
+from PhotonicsAI.graph.llm import LLMCallError, invoke_text
 from PhotonicsAI.graph.nodes._pdk_context import cells_short
 from PhotonicsAI.graph.state import PhIDOState
 
@@ -74,7 +74,7 @@ def reflector_node(state: PhIDOState) -> dict:
 
     model = state.get("reflector_model") or "gpt-4o-mini"
     try:
-        critique = invoke_llm(prompt, system_prompt="", model=model).strip()
+        critique = invoke_text(prompt, system_prompt="", model=model).strip()
     except LLMCallError as exc:
         critique = (
             f"[reflector] LLM call failed: {exc}. Falling back to a generic "

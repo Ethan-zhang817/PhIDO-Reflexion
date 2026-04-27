@@ -17,7 +17,7 @@ from PhotonicsAI.graph.adapters.legacy_pipeline import (
     map_pretemplate_to_draft,
     select_components,
 )
-from PhotonicsAI.graph.state import PhIDOState
+from PhotonicsAI.graph.state import DEFAULT_LEGACY_STAGE_MODEL, PhIDOState
 
 
 def entity_extraction_node(state: PhIDOState) -> dict:
@@ -25,7 +25,8 @@ def entity_extraction_node(state: PhIDOState) -> dict:
     if state.get("ee_result"):
         return {}
     try:
-        extracted = extract_entities(state.get("user_prompt", ""))
+        model = state.get("legacy_stage_model") or DEFAULT_LEGACY_STAGE_MODEL
+        extracted = extract_entities(state.get("user_prompt", ""), model=model)
     except Exception as exc:  # noqa: BLE001
         return {
             "legacy_mode": "failed",
@@ -52,7 +53,8 @@ def component_selection_node(state: PhIDOState) -> dict:
             "reflections": ["[component_selection] Missing entity-extraction result."],
         }
     try:
-        selected_components = select_components(pretemplate)
+        model = state.get("legacy_stage_model") or DEFAULT_LEGACY_STAGE_MODEL
+        selected_components = select_components(pretemplate, model=model)
         selected_pretemplate = apply_component_selection(
             pretemplate,
             selected_components,
@@ -101,7 +103,7 @@ def schematic_generation_node(state: PhIDOState) -> dict:
     try:
         schematic, session = build_schematic_from_pretemplate(
             selected_pretemplate,
-            model=state.get("designer_model") or "gpt-4o-mini",
+            model=state.get("legacy_stage_model") or DEFAULT_LEGACY_STAGE_MODEL,
         )
     except Exception as exc:  # noqa: BLE001
         return {
@@ -141,7 +143,7 @@ def legacy_pipeline_node(state: PhIDOState) -> dict:
         }
     built = build_legacy_seed(
         state.get("user_prompt", ""),
-        model=state.get("designer_model") or "gpt-4o-mini",
+        model=state.get("legacy_stage_model") or DEFAULT_LEGACY_STAGE_MODEL,
     )
     if built is None:
         return {
