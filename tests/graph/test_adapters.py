@@ -211,6 +211,284 @@ def test_netlist_and_gds_errors_carry_metadata():
 
 
 # ---------------------------------------------------------------------------
+# DSL shape validation (gds_adapter)
+# ---------------------------------------------------------------------------
+
+
+def test_validate_dsl_shape_rejects_tuple_nodes():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    # Reproduces the crash observed when running the Streamlit app: an
+    # LLM produced `nodes` as a tuple instead of a mapping.
+    with pytest.raises(NetlistError) as exc_info:
+        validate_dsl_shape({"nodes": (("N1", {}),), "edges": {}})
+    assert "tuple" in str(exc_info.value)
+
+
+def test_validate_dsl_shape_unwraps_single_wrapper_key():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    wrapped = {"CIRCUIT_demo": {"nodes": {"N1": {}}, "edges": {}}}
+    unwrapped = validate_dsl_shape(wrapped)
+    assert set(unwrapped) == {"nodes", "edges"}
+
+
+def test_validate_dsl_shape_coerces_list_of_singletons():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    dsl = {
+        "nodes": [{"N1": {"component": "x"}}, {"N2": {"component": "y"}}],
+        "edges": {},
+    }
+    coerced = validate_dsl_shape(dsl)
+    assert list(coerced["nodes"].keys()) == ["N1", "N2"]
+
+
+def test_validate_dsl_shape_reports_missing_keys():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    with pytest.raises(NetlistError) as exc_info:
+        validate_dsl_shape({"doc": {}})
+    assert "nodes" in str(exc_info.value)
+
+
+def test_validate_dsl_shape_coerces_edges_from_empty_string():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    out = validate_dsl_shape(
+        {
+            "nodes": {"N1": {"component": "straight", "params": {}}},
+            "edges": "",
+        }
+    )
+    assert out["edges"] == {}
+
+
+def test_validate_dsl_shape_coerces_edges_from_inline_yaml_string():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    s = 'E1: {link: "N1,o1: N2,o1", properties: {type: route}}'
+    out = validate_dsl_shape(
+        {
+            "nodes": {
+                "N1": {"component": "straight", "params": {}},
+                "N2": {"component": "straight", "params": {}},
+            },
+            "edges": s,
+        }
+    )
+    assert "E1" in out["edges"]
+
+
+def test_validate_dsl_shape_rejects_edges_gibberish_string():
+    from PhotonicsAI.graph.adapters.gds_adapter import validate_dsl_shape
+
+    with pytest.raises(NetlistError) as exc_info:
+        validate_dsl_shape(
+            {
+                "nodes": {"N1": {"component": "straight", "params": {}}},
+                "edges": "no connections between instances",
+            }
+    )
+    assert "edges" in str(exc_info.value).lower() or "mapping" in str(
+        exc_info.value
+    ).lower()
+
+
+def test_build_gds_structured_absorbs_bad_dsl(tmp_path):
+    from PhotonicsAI.graph.adapters.gds_adapter import build_gds_structured
+
+    comp, report = build_gds_structured(
+        {"nodes": "not a dict", "edges": {}}, tmp_path / "wont_be_written.gds"
+    )
+    assert comp is None
+    assert report.ok is False
+    assert any("dsl->netlist" in err for err in report.errors)
+
+
+# ---------------------------------------------------------------------------
+# Designer-DSL normalization (gds_adapter)
+# ---------------------------------------------------------------------------
+
+
+def test_scale_numeric_placements_leaves_string_coords_and_scales_floats():
+    from PhotonicsAI.graph.adapters.gds_adapter import _scale_numeric_placements
+
+    d = {
+        "placements": {
+            "A": {"x": 10, "y": 20.0, "rotation": 0},
+            "B": {"x": "N1,o1", "y": 0},
+        }
+    }
+    s = _scale_numeric_placements(d, 2.0)
+    assert s["placements"]["A"]["x"] == 20.0
+    assert s["placements"]["A"]["y"] == 40.0
+    assert s["placements"]["B"]["x"] == "N1,o1"
+    assert s["placements"]["B"]["y"] == 0
+
+
+def test_normalize_link_accepts_no_space_and_adds_o_prefix():
+    from PhotonicsAI.graph.adapters.gds_adapter import _normalize_link
+
+    assert _normalize_link("N1,2:N2,1") == "N1,o2: N2,o1"
+    assert _normalize_link("N1,o2: N2,o1") == "N1,o2: N2,o1"
+    assert _normalize_link("  N1 , 2 : N2 , 1 ") == "N1,o2: N2,o1"
+    assert _normalize_link("garbage") is None
+
+
+def test_derive_top_level_ports_marks_unconnected_endpoints():
+    from PhotonicsAI.graph.adapters.gds_adapter import _derive_top_level_ports
+
+    nodes = {
+        "N1": {"properties": {"ports": "1x2"}},  # 3 ports
+        "N2": {"properties": {"ports": "1x1"}},  # 2 ports
+    }
+    edges = {"E1": {"link": "N1,o2: N2,o1"}}
+    ports = _derive_top_level_ports(nodes, edges)
+    # N1,o1 + N1,o3 + N2,o2 = 3 open endpoints
+    assert set(ports.values()) == {"N1,o1", "N1,o3", "N2,o2"}
+
+
+def test_normalize_designer_dsl_fills_missing_ports_and_placement():
+    from PhotonicsAI.graph.adapters.gds_adapter import _normalize_designer_dsl
+
+    dsl = {
+        "nodes": {
+            "N1": {"component": "x", "properties": {"ports": "1x1"}},
+            "N2": {"component": "y", "placement": {"X": 5, "Y": 10, "Rotation": 90}},
+        },
+        "edges": {"E1": {"link": "N1,1:N2,1"}},
+    }
+    normalized, warnings = _normalize_designer_dsl(dsl)
+
+    assert normalized["nodes"]["N1"]["placement"] == {"x": 0, "y": 0, "rotation": 0}
+    assert normalized["nodes"]["N2"]["placement"] == {"x": 5, "y": 10, "rotation": 90}
+    assert normalized["nodes"]["N1"]["params"] == {}
+    assert normalized["edges"]["E1"]["link"] == "N1,o1: N2,o1"
+    assert "ports" in normalized
+    assert any("auto-derived" in w for w in warnings)
+
+
+def test_normalize_designer_dsl_drops_unparseable_edges():
+    from PhotonicsAI.graph.adapters.gds_adapter import _normalize_designer_dsl
+
+    dsl = {
+        "nodes": {"N1": {"component": "x"}, "N2": {"component": "y"}},
+        "edges": {"E1": {"link": "???"}, "E2": {"link": "N1,1:N2,1"}},
+    }
+    normalized, warnings = _normalize_designer_dsl(dsl)
+    assert set(normalized["edges"]) == {"E2"}
+    assert any("unparseable" in w for w in warnings)
+
+
+def test_normalize_designer_dsl_directional_coupler_param_aliases():
+    from PhotonicsAI.graph.adapters.gds_adapter import _normalize_designer_dsl
+
+    dsl = {
+        "nodes": {
+            "N1": {
+                "component": "_directional_coupler",
+                "params": {
+                    "width": 500e-9,
+                    "wavelength": 1550e-9,
+                    "coupling_length": 2e-6,
+                    "gap": 200e-9,
+                },
+            }
+        },
+        "edges": {},
+    }
+    normalized, warnings = _normalize_designer_dsl(dsl)
+    p = normalized["nodes"]["N1"]["params"]
+    assert "width" not in p and "wavelength" not in p
+    assert p["length"] == pytest.approx(2.0)
+    assert p["gap"] == pytest.approx(0.2)
+    assert any("removed unsupported" in w for w in warnings)
+    assert any("coupling_length" in w for w in warnings)
+
+
+def test_normalize_designer_dsl_directional_coupler_rejects_zero_dy_dx():
+    from PhotonicsAI.graph.adapters.gds_adapter import _normalize_designer_dsl
+
+    dsl = {
+        "nodes": {
+            "N1": {
+                "component": "_directional_coupler",
+                "params": {
+                    "length": 2.0,
+                    "gap": 0.2,
+                    "dy": 0,
+                    "dx": 0,
+                },
+            }
+        },
+        "edges": {},
+    }
+    normalized, warnings = _normalize_designer_dsl(dsl)
+    p = normalized["nodes"]["N1"]["params"]
+    assert p["dy"] == 4.0
+    assert p["dx"] == 10.0
+    assert any("_directional_coupler: dy was 0" in w for w in warnings)
+    assert any("_directional_coupler: dx was 0" in w for w in warnings)
+
+
+def test_normalize_designer_dsl_coerces_quoted_numeric_strings():
+    from PhotonicsAI.graph.adapters.gds_adapter import _normalize_designer_dsl
+
+    dsl = {
+        "nodes": {
+            "N1": {
+                "component": "bend_euler",
+                "params": {"radius": "10.0", "width": "0.5"},
+                "placement": {"x": "0", "y": "1e2"},
+            }
+        },
+        "edges": {},
+    }
+    normalized, warnings = _normalize_designer_dsl(dsl)
+    p = normalized["nodes"]["N1"]["params"]
+    pl = normalized["nodes"]["N1"]["placement"]
+    assert p["radius"] == 10.0
+    assert p["width"] == 0.5
+    assert pl["x"] == 0
+    assert pl["y"] == 100.0
+    assert any("coerced" in w for w in warnings)
+
+
+# ---------------------------------------------------------------------------
+# Reflector escalate detection
+# ---------------------------------------------------------------------------
+
+
+def test_reflector_decision_marker_is_authoritative():
+    from PhotonicsAI.graph.nodes.reflector import _reflector_requested_escalate
+
+    assert _reflector_requested_escalate("...\nDECISION: ESCALATE\n") is True
+    assert _reflector_requested_escalate("...\nDECISION: RETRY\n") is False
+    assert _reflector_requested_escalate("decision: escalate") is True  # case-insensitive
+
+
+def test_reflector_ignores_hedging_inline_escalate_phrase():
+    from PhotonicsAI.graph.nodes.reflector import _reflector_requested_escalate
+
+    # Real-world case that previously caused premature escalation: the
+    # LLM ends a conditional sentence with "escalate to human." without
+    # a standalone decision line.
+    txt = (
+        "Replace N1 with directional_coupler_v2.\n"
+        "If no cell matches, otherwise escalate to human if the PDK lacks it."
+    )
+    assert _reflector_requested_escalate(txt) is False
+
+
+def test_reflector_legacy_standalone_escalate_line_still_works():
+    from PhotonicsAI.graph.nodes.reflector import _reflector_requested_escalate
+
+    txt = "Nothing we can do.\nescalate to human"
+    assert _reflector_requested_escalate(txt) is True
+
+
+# ---------------------------------------------------------------------------
 # Planarity adapter (does not require LLMs / gdsfactory)
 # ---------------------------------------------------------------------------
 

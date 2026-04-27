@@ -31,13 +31,12 @@ from PhotonicsAI.Photon.utils import get_file_path, model_from_npz
 @gf.cell
 def _directional_coupler(
     length: float = 20.0,
+    gap: float = 0.236,
     dy: float = 4.0,
     dx: float = 10.0,
 ) -> gf.Component:
-    _args = locals()
-
     c = gf.Component()
-    coupler = gf.components.coupler(**_args)
+    coupler = gf.components.coupler(length=length, gap=gap, dy=dy, dx=dx)
     coupler_r = c << coupler
     c.add_port("o1", port=coupler_r.ports["o1"])
     c.add_port("o2", port=coupler_r.ports["o2"])

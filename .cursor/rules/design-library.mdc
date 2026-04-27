@@ -1,5 +1,5 @@
 ---
-description: Conventions for adding/editing photonic components in DesignLibrary
+description: 
 globs: PhotonicsAI/KnowledgeBase/DesignLibrary/**/*.py
 alwaysApply: false
 ---

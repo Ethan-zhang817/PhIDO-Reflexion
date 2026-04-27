@@ -43,11 +43,11 @@ from PhotonicsAI.Photon.drc.drc import run_drc
 # =============================================================================
 
 # LLM model configurations for different workflow steps
-entity_extraction_model = "o1"
-component_selection_model = "o1"
-component_specification_model = "o1"
-schematic_model = "o1"
-layout_model = "o1"
+entity_extraction_model = "gpt-4o-mini"
+component_selection_model = "gpt-4o-mini"
+component_specification_model = "gpt-4o-mini"
+schematic_model = "gpt-4o-mini"
+layout_model = "gpt-4o-mini"
 
 # HTML templates for UI styling
 # Used to create consistent visual elements throughout the interface

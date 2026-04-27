@@ -937,6 +937,17 @@ def call_deepseek(prompt, sys_prompt="", model="deepseek-reasoner", n_completion
             yaml.dump(splice(response.choices[0].message.content), outfile)
         return [splice(r.message.content) for r in response.choices]
         
+def _is_openai_reasoning_model_id(model: str) -> bool:
+    """True for OpenAI *o-series* ids routed through ``call_openai_reasoning``."""
+    m = (model or "").strip().lower()
+    if not m:
+        return False
+    for prefix in ("o1", "o3", "o4"):
+        if m == prefix or m.startswith(f"{prefix}-"):
+            return True
+    return False
+
+
 def call_llm(prompt, sys_prompt,llm_api_selection="nvidia/nemotron-4-340b-instruct"):
     """Call the LLM API.
 
@@ -945,12 +956,14 @@ def call_llm(prompt, sys_prompt,llm_api_selection="nvidia/nemotron-4-340b-instru
         sys_prompt: The system prompt to send to the model.
         llm_api_selection: The API to use for the completion.
     """
-    if llm_api_selection[:4] == "gpt-":
+    sel = llm_api_selection or ""
+    low = sel.lower()
+    if low.startswith("gpt-") or low.startswith("chatgpt-"):
         return call_openai(prompt, sys_prompt, llm_api_selection)
-    if llm_api_selection[:4] == "nvid":
+    if sel[:4] == "nvid":
         print("NVIDIA")
         return call_nvidia(prompt,sys_prompt, llm_api_selection)
-    elif llm_api_selection[:2] == "o1" or llm_api_selection[:2] == "o3":
+    elif _is_openai_reasoning_model_id(sel):
         return call_openai_reasoning(
             f"{prompt} \n {sys_prompt}", model=llm_api_selection
         )

@@ -16,8 +16,8 @@ from typing import Annotated, Any, Optional, TypedDict
 from PhotonicsAI.graph.adapters.eda_report import EdaReport
 
 
-DEFAULT_DESIGNER_MODEL = "o1"
-DEFAULT_REFLECTOR_MODEL = "claude-3-7-sonnet-20250219"
+DEFAULT_DESIGNER_MODEL = "gpt-4o-mini"
+DEFAULT_REFLECTOR_MODEL = "gpt-4o-mini"
 DEFAULT_MAX_RETRIES = 3
 
 
@@ -32,6 +32,24 @@ class PhIDOState(TypedDict, total=False):
     """Optional starting DSL — if provided, the Designer treats it as a
     base to iterate on rather than synthesizing from scratch."""
 
+    ee_result: Optional[dict]
+    """Legacy entity-extraction/pretemplate artifact."""
+
+    selected_components: list[str]
+    """Ordered DesignLibrary component names chosen before schematic generation."""
+
+    selected_pretemplate: Optional[dict]
+    """Entity-extraction artifact after component names are mapped to PDK cells."""
+
+    draft_dsl: Optional[dict]
+    """Legacy draft DSL before schematic edges / placement are finalized."""
+
+    schematic_dsl: Optional[dict]
+    """Legacy schematic-generation output, close to GETTING_STARTED 4_SG."""
+
+    legacy_debug: dict[str, str]
+    """Optional raw DOT/preschematic artifacts from the original pipeline."""
+
     # ---- Designer / current artifact ---------------------------------
     circuit_dsl: Optional[dict]
     """DSL the Designer most recently produced (single-source-of-truth)."""
@@ -42,8 +60,16 @@ class PhIDOState(TypedDict, total=False):
     gds_path: Optional[str]
     """Path to the most recently written GDS file."""
 
+    gds_png_path: Optional[str]
+    """Path to the most recently saved layout PNG (from ``gf.Component.plot``)."""
+
     sax_result: Optional[Any]
-    """Latest SAX simulation output (wavelength sweep dict)."""
+    """Reserved; **always** ``None`` in checkpointed state. The SAX curve is
+    only exposed via ``sax_png_path`` (and the legacy ``build/plot_sax.png``) —
+    persisting the sweep pytree broke LangGraph msgpack (``ArrayImpl``)."""
+
+    sax_png_path: Optional[str]
+    """Path to the saved S-parameter sweep PNG (from ``utils.plot_dict_arrays``)."""
 
     # ---- EDA-Reflexion -----------------------------------------------
     eda_report: Optional[EdaReport]
@@ -69,6 +95,12 @@ class PhIDOState(TypedDict, total=False):
     # ---- Configuration ----------------------------------------------
     designer_model: str
     reflector_model: str
+    require_drc_pass: bool
+    """If True (default), evaluator *pass* requires DRC zero violations. If
+    False, *pass* when GDS and SAX are ok; DRC is still run and shown."""
+
+    legacy_mode: str
+    """``compat`` when the original multi-stage scaffold seeded the run."""
 
     # ---- Observability ----------------------------------------------
     thread_id: str
@@ -83,16 +115,25 @@ def initial_state(
     designer_model: str = DEFAULT_DESIGNER_MODEL,
     reflector_model: str = DEFAULT_REFLECTOR_MODEL,
     max_retries: int = DEFAULT_MAX_RETRIES,
+    require_drc_pass: bool = True,
     thread_id: str = "",
 ) -> PhIDOState:
     """Return a fully-populated ``PhIDOState`` ready to feed into the graph."""
     return PhIDOState(
         user_prompt=user_prompt,
         seed_circuit_dsl=seed_circuit_dsl,
+        ee_result=None,
+        selected_components=[],
+        selected_pretemplate=None,
+        draft_dsl=None,
+        schematic_dsl=None,
+        legacy_debug={},
         circuit_dsl=None,
         gf_netlist=None,
         gds_path=None,
+        gds_png_path=None,
         sax_result=None,
+        sax_png_path=None,
         eda_report=None,
         reflections=[],
         retry_count=0,
@@ -101,6 +142,8 @@ def initial_state(
         human_input=None,
         designer_model=designer_model,
         reflector_model=reflector_model,
+        require_drc_pass=require_drc_pass,
+        legacy_mode="",
         thread_id=thread_id,
         timings={},
         token_usage={},

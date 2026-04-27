@@ -27,7 +27,12 @@ def _load_template() -> str:
 
 
 def _seed_section(state: PhIDOState) -> str:
-    seed = state.get("circuit_dsl") or state.get("seed_circuit_dsl")
+    seed = (
+        state.get("circuit_dsl")
+        or state.get("schematic_dsl")
+        or state.get("draft_dsl")
+        or state.get("seed_circuit_dsl")
+    )
     if not seed:
         return ""
     return (
@@ -45,6 +50,52 @@ def _reflection_section(state: PhIDOState) -> str:
         "== Latest reflection (MUST follow) ==\n"
         f"{latest}\n"
     )
+
+
+def _latest_reflection(state: PhIDOState) -> str:
+    reflections = state.get("reflections") or []
+    return reflections[-1].strip() if reflections else ""
+
+
+def _is_routing_only_reflection(text: str) -> bool:
+    """Routing feedback should not authorize topology rewrites."""
+    t = text.lower()
+    routing_markers = (
+        "routing",
+        "same angle",
+        "ignore_links",
+        "placement",
+        "scale",
+        "separate the tree",
+        "drc",
+        "si_space",
+    )
+    topology_markers = (
+        "add edge",
+        "remove edge",
+        "change topology",
+        "wrong topology",
+        "missing output",
+        "missing input",
+        "component selection",
+    )
+    return any(marker in t for marker in routing_markers) and not any(
+        marker in t for marker in topology_markers
+    )
+
+
+def _preserve_topology_for_routing_revision(
+    previous: dict,
+    revised: dict,
+) -> tuple[dict, bool]:
+    """Keep ``edges``/``ports`` stable when only routing was criticized."""
+    changed = False
+    out = dict(revised)
+    for key in ("edges", "ports"):
+        if key in previous and revised.get(key) != previous.get(key):
+            out[key] = previous[key]
+            changed = True
+    return out, changed
 
 
 def _strip_code_fences(raw: str) -> str:
@@ -71,6 +122,21 @@ def designer_node(state: PhIDOState) -> dict:
     optionally an extra reflection if the LLM call fails outright, so
     the next iteration has *something* to react to).
     """
+    if state.get("circuit_dsl") and not state.get("reflections"):
+        return {"circuit_dsl": state["circuit_dsl"]}
+    if not (
+        state.get("circuit_dsl")
+        or state.get("schematic_dsl")
+        or state.get("draft_dsl")
+        or state.get("seed_circuit_dsl")
+    ):
+        return {
+            "reflections": [
+                "[designer] Refused direct prompt-to-DSL generation: "
+                "legacy multi-stage pipeline did not produce a schematic seed."
+            ]
+        }
+
     template = _load_template()
     prompt = template.format(
         user_prompt=state.get("user_prompt", ""),
@@ -79,7 +145,7 @@ def designer_node(state: PhIDOState) -> dict:
         reflection_section=_reflection_section(state),
     )
 
-    model = state.get("designer_model") or "o1"
+    model = state.get("designer_model") or "gpt-4o-mini"
     try:
         raw = invoke_llm(prompt, system_prompt="", model=model)
     except LLMCallError as exc:
@@ -97,4 +163,19 @@ def designer_node(state: PhIDOState) -> dict:
                 "next round must produce a single YAML document with `nodes` and `edges`."
             ],
         }
+    previous = state.get("circuit_dsl") or state.get("schematic_dsl")
+    if (
+        isinstance(previous, dict)
+        and _is_routing_only_reflection(_latest_reflection(state))
+    ):
+        dsl, topology_changed = _preserve_topology_for_routing_revision(previous, dsl)
+        if topology_changed:
+            return {
+                "circuit_dsl": dsl,
+                "reflections": [
+                    "[designer] Preserved previous edges/ports because the latest "
+                    "reflection was routing-only; topology changes are not allowed "
+                    "for placement/routing retries."
+                ],
+            }
     return {"circuit_dsl": dsl}

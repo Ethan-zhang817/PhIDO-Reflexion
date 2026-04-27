@@ -25,7 +25,7 @@ from PhotonicsAI.Photon import llm_api
 class LLMRequest:
     prompt: str
     system_prompt: str = ""
-    model: str = "o1"
+    model: str = "gpt-4o-mini"
 
 
 class LLMCallError(RuntimeError):
@@ -66,7 +66,7 @@ def make_llm_runnable(model: str) -> RunnableLambda:
 def invoke_llm(
     prompt: str,
     system_prompt: str = "",
-    model: str = "o1",
+    model: str = "gpt-4o-mini",
     **_: Any,
 ) -> str:
     """Convenience helper used directly by node modules."""

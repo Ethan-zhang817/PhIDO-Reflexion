@@ -24,12 +24,23 @@ class SaxModelMissingError(AdapterError):
             by the Reflector to suggest a replacement device).
     """
 
-    def __init__(self, missing: list[str], available: list[str]) -> None:
+    def __init__(
+        self,
+        missing: list[str],
+        available: list[str],
+        diagnostics: list[str] | None = None,
+    ) -> None:
         self.missing = sorted(set(missing))
         self.available = sorted(set(available))
+        self.diagnostics = diagnostics or []
+        diag_text = (
+            " Diagnostics: " + "; ".join(self.diagnostics[:5])
+            if self.diagnostics
+            else ""
+        )
         super().__init__(
             f"SAX model(s) missing: {self.missing}. "
-            f"({len(self.available)} models available.)"
+            f"({len(self.available)} models available.){diag_text}"
         )
 
 

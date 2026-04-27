@@ -1,6 +1,6 @@
 ---
-description: Conventions for adding/editing LLM providers and prompts
-globs: PhotonicsAI/Photon/{llm_api.py,prompts.yaml,templates.yaml}
+description: 
+globs: PhotonicsAI/Photon/{llm_api.py, prompts.yaml, templates.yaml}
 alwaysApply: false
 ---
 
@@ -11,7 +11,7 @@ alwaysApply: false
 ## 已支持的提供商与所需环境变量
 
 | 提供商     | 环境变量                | 备注                                   |
-|-----------|------------------------|----------------------------------------|
+|-----|---|----|
 | OpenAI    | `OPENAI_API_KEY`       | **必填**，用于 pydantic 格式化 entity |
 | Anthropic | `ANTHROPIC_API_KEY`    | Claude 3/4 系列                        |
 | Google    | `GOOGLEGENAI_API_KEY`  | Gemini 1.5/2.x（库已 deprecated 但仍用）|

@@ -75,6 +75,38 @@ def fake_pdk_context(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def fake_legacy_pipeline(monkeypatch):
+    """Avoid real legacy LLM stages unless a test explicitly opts in."""
+    schematic = {
+        "doc": {"name": "legacy"},
+        "nodes": {"N1": {"component": "stub"}},
+        "edges": {},
+        "properties": {},
+    }
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.extract_entities",
+        lambda *_args, **_kwargs: {"components_list": ["stub"]},
+    )
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.select_components",
+        lambda *_args, **_kwargs: ["stub"],
+    )
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.build_schematic_from_pretemplate",
+        lambda *_args, **_kwargs: (schematic, {"p200_preschematic": "", "p300_dot_string": ""}),
+    )
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.build_legacy_seed",
+        lambda *_args, **_kwargs: {
+            "ee_result": {"components_list": ["stub"]},
+            "selected_components": ["stub"],
+            "draft_dsl": {},
+            "schematic_dsl": schematic,
+        },
+    )
+
+
 def _violating_report() -> Any:
     return build_eda_report(
         GdsReport(ok=True, gds_path="/tmp/fake.gds"),
@@ -146,7 +178,6 @@ def test_loop_fail_then_pass_visits_reflector_once(
     # Designer round 1, Reflector, Designer round 2
     responses.extend(
         [
-            "doc:\n  name: round1\nnodes: {}\nedges: {}\nproperties: {}\n",
             "Lower N1.delta_length to 100 to clear Si_space.",
             "doc:\n  name: round2\nnodes: {}\nedges: {}\nproperties: {}\n",
         ]
@@ -177,16 +208,101 @@ def test_loop_fail_then_pass_visits_reflector_once(
     assert visited[-1] == "evaluator"
 
 
+def test_legacy_pipeline_seeds_prompt_without_designer_llm(
+    monkeypatch, fake_llm, fake_pdk_context, stubbed_executor
+):
+    calls, responses = fake_llm
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.extract_entities",
+        lambda *_args, **_kwargs: {"components_list": ["2x2 MZI"]},
+    )
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.select_components",
+        lambda *_args, **_kwargs: ["mzi_2x2_pn_diode"],
+    )
+    schematic = {
+        "doc": {"name": "legacy"},
+        "nodes": {"N1": {"component": "mzi_2x2_pn_diode"}},
+        "edges": {"E1": {"link": "N1,o3: N2,o2"}},
+        "properties": {},
+    }
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.build_schematic_from_pretemplate",
+        lambda *_args, **_kwargs: (schematic, {"p200_preschematic": "", "p300_dot_string": ""}),
+    )
+    stubbed_executor.append(_clean_report())
+
+    graph = _build_graph_no_checkpoint()
+    state = initial_state("Two cascaded MZIs with 10 GHz bandwidth", max_retries=3)
+    visited: list[str] = []
+    final_state: dict = dict(state)
+    for update in graph.stream(state, stream_mode="updates"):
+        for node_name, node_state in update.items():
+            visited.append(node_name)
+            final_state.update(node_state)
+
+    assert visited[:4] == [
+        "entity_extraction",
+        "component_selection",
+        "schematic_generation",
+        "eda_executor",
+    ]
+    assert "designer" not in visited
+    assert calls == []
+    assert final_state["legacy_mode"] == "schematic_generated"
+    assert final_state["circuit_dsl"]["edges"]["E1"]["link"] == "N1,o3: N2,o2"
+
+
+def test_legacy_pipeline_failure_does_not_call_designer(
+    monkeypatch, fake_llm, fake_pdk_context, stubbed_executor
+):
+    calls, responses = fake_llm
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.legacy_pipeline.extract_entities",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    graph = _build_graph_no_checkpoint()
+    state = initial_state("unhandled design", max_retries=3)
+    visited: list[str] = []
+    final_state: dict = dict(state)
+    for update in graph.stream(state, stream_mode="updates"):
+        for node_name, node_state in update.items():
+            visited.append(node_name)
+            final_state.update(node_state)
+
+    assert "designer" not in visited
+    assert "eda_executor" not in visited
+    assert visited == ["entity_extraction", "human_escalation"]
+    assert calls == []
+    assert final_state["legacy_mode"] == "failed"
+
+
+def test_drc_ignored_ends_without_reflector(
+    fake_llm, fake_pdk_context, stubbed_executor
+):
+    """With require_drc_pass=False, a DRC-violating report still routes pass -> END."""
+    calls, responses = fake_llm
+    stubbed_executor.append(_violating_report())
+
+    graph = _build_graph_no_checkpoint()
+    state = initial_state("x", require_drc_pass=False, max_retries=3)
+    visited: list[str] = []
+    for update in graph.stream(state, stream_mode="updates"):
+        visited.extend(update.keys())
+    assert "reflector" not in visited
+    assert "evaluator" in visited
+    assert visited[-1] == "evaluator"
+
+
 def test_loop_caps_at_max_retries_and_escalates(
     fake_llm, fake_pdk_context, stubbed_executor
 ):
     calls, responses = fake_llm
     responses.extend(
         [
-            "doc:\n  name: r1\nnodes: {}\nedges: {}\nproperties: {}\n",
             "first reflection",
             "doc:\n  name: r2\nnodes: {}\nedges: {}\nproperties: {}\n",
-            "second reflection",
         ]
     )
     stubbed_executor.extend([_violating_report(), _violating_report(), _violating_report()])
@@ -228,3 +344,70 @@ def test_loop_aborts_when_designer_emits_invalid_yaml(
 
     assert "designer" in visited
     assert "evaluator" in visited
+
+
+def test_designer_preserves_topology_for_routing_only_reflection(
+    monkeypatch, fake_pdk_context
+):
+    from PhotonicsAI.graph.nodes.designer import designer_node
+
+    previous = {
+        "doc": {"title": "1x8 splitter"},
+        "nodes": {
+            "N1": {"component": "mzi", "placement": {"x": 1, "y": 1}},
+            "N2": {"component": "mzi", "placement": {"x": 2, "y": 2}},
+            "N3": {"component": "mzi", "placement": {"x": 2, "y": 0}},
+            "N4": {"component": "mzi", "placement": {"x": 3, "y": 3}},
+        },
+        "edges": {
+            "E1": {"link": "N1,o2: N2,o1"},
+            "E2": {"link": "N1,o3: N3,o1"},
+            "E3": {"link": "N2,o2: N4,o1"},
+        },
+        "ports": {"o1": "N1,o1", "o2": "N3,o2", "o3": "N4,o2"},
+        "properties": {},
+    }
+    monkeypatch.setattr(
+        "PhotonicsAI.graph.nodes.designer.invoke_llm",
+        lambda *_args, **_kwargs: (
+            "doc:\n"
+            "  title: 1x8 splitter\n"
+            "nodes:\n"
+            "  N1:\n"
+            "    component: mzi\n"
+            "    placement: {x: 1, y: 1}\n"
+            "  N2:\n"
+            "    component: mzi\n"
+            "    placement: {x: 20, y: 20}\n"
+            "  N3:\n"
+            "    component: mzi\n"
+            "    placement: {x: 2, y: 0}\n"
+            "  N4:\n"
+            "    component: mzi\n"
+            "    placement: {x: 3, y: 3}\n"
+            "edges:\n"
+            "  E1: {link: 'N1,o2: N2,o1'}\n"
+            "  E2: {link: 'N1,o3: N3,o1'}\n"
+            "  E3: {link: 'N2,o2: N4,o1'}\n"
+            "  E4: {link: 'N1,o1: N4,o2'}\n"
+            "ports:\n"
+            "  o1: N3,o2\n"
+            "  o2: N4,o3\n"
+            "properties: {}\n"
+        ),
+    )
+
+    out = designer_node(
+        {
+            "user_prompt": "1x8 splitter",
+            "circuit_dsl": previous,
+            "reflections": [
+                "To resolve the routing failure, scale placements by 1.5. DECISION: RETRY"
+            ],
+        }
+    )
+
+    assert out["circuit_dsl"]["edges"] == previous["edges"]
+    assert out["circuit_dsl"]["ports"] == previous["ports"]
+    assert out["circuit_dsl"]["nodes"]["N2"]["placement"]["x"] == 20
+    assert "Preserved previous edges/ports" in out["reflections"][0]

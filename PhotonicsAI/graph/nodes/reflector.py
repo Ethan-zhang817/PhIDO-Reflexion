@@ -9,18 +9,28 @@ and surfaced at the top of the next Designer prompt.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
 
-from PhotonicsAI.graph.adapters.eda_report import summarize_report
+from PhotonicsAI.graph.adapters.eda_report import EdaReport, summarize_report
 from PhotonicsAI.graph.llm_runnables import LLMCallError, invoke_llm
 from PhotonicsAI.graph.nodes._pdk_context import cells_short
 from PhotonicsAI.graph.state import PhIDOState
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "reflector.txt"
 
-_ESCALATE_TOKEN = "escalate to human"
+# Structured marker the Reflector is prompted to emit on a line of its own.
+_DECISION_RE = re.compile(
+    r"^\s*DECISION\s*:\s*(RETRY|ESCALATE)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# Fallback marker: only honored when it appears on its own line. Prevents
+# hedging sentences like "otherwise escalate to human" from triggering an
+# early escalation.
+_LEGACY_ESCALATE_RE = re.compile(r"^\s*escalate to human\.?\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 def _format_past_reflections(state: PhIDOState, limit: int = 3) -> str:
@@ -42,6 +52,8 @@ def _format_summary(state: PhIDOState) -> str:
     report = state.get("eda_report")
     if report is None:
         return "(no EDA report this round)"
+    if isinstance(report, dict):
+        report = EdaReport.model_validate(report)
     return summarize_report(report)
 
 
@@ -60,7 +72,7 @@ def reflector_node(state: PhIDOState) -> dict:
         past_reflections=_format_past_reflections(state),
     )
 
-    model = state.get("reflector_model") or "claude-3-7-sonnet-20250219"
+    model = state.get("reflector_model") or "gpt-4o-mini"
     try:
         critique = invoke_llm(prompt, system_prompt="", model=model).strip()
     except LLMCallError as exc:
@@ -79,14 +91,36 @@ def reflector_node(state: PhIDOState) -> dict:
     }
 
 
+def _reflector_requested_escalate(text: str) -> bool:
+    """Return ``True`` only when the Reflector emits an explicit, standalone
+    escalate marker.
+
+    We match two forms, both of which must appear on their own line:
+
+    * ``DECISION: ESCALATE`` — the structured marker prescribed by the
+      reflector prompt.
+    * ``escalate to human`` — legacy fallback, kept for backwards
+      compatibility with older prompt variants. **Not** a substring match
+      (anchored to line start/end) so that hedging sentences like
+      "otherwise, escalate to human if the PDK lacks a cell" cannot
+      prematurely abort the loop.
+    """
+    if not text:
+        return False
+    match = _DECISION_RE.search(text)
+    if match is not None:
+        return match.group(1).upper() == "ESCALATE"
+    return bool(_LEGACY_ESCALATE_RE.search(text))
+
+
 def route_after_reflector(state: PhIDOState) -> str:
     """``retry`` while under the cap and not escalating; ``escalate`` otherwise."""
     retries = state.get("retry_count", 0)
     cap = state.get("max_retries", 3)
     reflections = state.get("reflections") or []
-    last = reflections[-1].lower() if reflections else ""
+    last = reflections[-1] if reflections else ""
 
-    if _ESCALATE_TOKEN in last:
+    if _reflector_requested_escalate(last):
         return "escalate"
     if retries >= cap:
         return "escalate"

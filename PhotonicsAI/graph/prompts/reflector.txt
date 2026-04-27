@@ -16,6 +16,53 @@ use to revise the YAML DSL.
 - Minimum feature size / spacing: 0.13 um
 - Available cells: {available_cells_short}
 - Each cell exposes ports o1..oN counter-clockwise.
+- ``params`` must match the **Python** argument names in the cell’s
+  ``DesignLibrary`` module (e.g. ``_directional_coupler``: length/gap/dy/dx
+  in µm — not width/wavelength; suggest fixing names, not alternating
+  between wrong synonyms). Do **not** swap ``length``↔``dy`` or ``gap``↔``dx``:
+  they are different physical knobs.
+- If the EDA log says ``unsupported operand`` between ``float`` and ``str``,
+  the fix is: use **unquoted** YAML numbers in ``params`` and ``placement`` (or
+  scientific literals like ``2.0e-6``), not a rename of PDK fields.
+- **Forbidden advice (never suggest these):** renaming ``_directional_coupler``
+  params to swap ``length`` with ``dy`` or ``gap`` with ``dx``; telling the
+  Designer to "change length to dy" (or the reverse) is always wrong.
+- If the log mentions ``edges`` is not a mapping / is a ``str``: require
+  `edges: {{}}` or a real mapping of edge ids, not prose, not a single quoted string.
+- **DRC** (e.g. ``Si_width``, ``Si_space`` at coordinates): do **not** map these to
+  renaming ``_directional_coupler``'s ``length``↔``dy`` or ``gap``↔``dx`` — those
+  are routing/bend spacings, not drawn waveguide width. Width violations usually
+  involve cross_section / process assumptions or geometry at a specific
+  ``(x,y)``; suggest adjusting **component library geometry**, **PDK min width** in
+  the rule deck context, or **placements**; only suggest DSL param renames that
+  actually control the violated edge (and never the length/dy, gap/dx swaps above).
+- **GDSFactory routing first:** If the log says **routing failed**, **Routing
+  collision** (often naming a subcell like ``_directional_coupler_...``), or
+  **ignore_links=True** / **fell back** — that is a **port/graph routing** problem,
+  not something fixed by only moving **unrelated** MZI/MMI blocks to new
+  ``(x,y)``. Call out the **node** that uses that component (or the **edges** into
+  it) and suggest **params** (``length``/``gap``/``dy``/``dx``), a **different
+  component** from the list, or **fewer / simpler edges** so gdsfactory can route.
+  If the error text mentions **"same angle"** at a **target** (merge) port, the
+  usual failure mode is **Graphviz-tight** `placement` from the legacy flow:
+  nudging only two or three nodes often **repeats** the error; ask the Designer to
+  **scale all** instance ``placement.x`` / ``y`` by a **common** factor (e.g. 1.5–2)
+  to separate the tree, or adjust **MZI/branch** params for wider routing channels,
+  before trusting DRC on ``Si_space``.
+  Only after routing succeeds do ``Si_space`` DRC points become trustworthy; you
+  may still mention spacing if a **named node** in the log matches the violation
+  area.
+- **SAX ``missing_models`` (not "missing ports"):** These names are **S-parameter
+  model keys** required by the recursive netlist (must exist in the PDK model
+  registry). If the log lists something like ``Unnamed_85`` / ``Unnamed_NN``, that
+  is an **anonymous gdsfactory sub-cell** exposed in the hierarchy — there is **no**
+  matching entry in ``all_models``. Do **not** suggest fixing YAML ``ports:`` or
+  ``o1``/``o2`` wiring to "add a model"; instead require **replacing or simplifying
+  the circuit** so every SAX-required block maps to a **named** cell from the
+  available list (e.g. swap a composite / ad-hoc assembly for standard
+  ``mzi_*``, ``straight``, ``bend_euler``, …) or remove the structure that creates
+  the anonymous instance. DRC ``cell: Unnamed_*`` usually tracks the same layout
+  region; fix the topology first, then spacing.
 
 == Past reflections (most recent first; AVOID repeating them) ==
 {past_reflections}
@@ -24,7 +71,12 @@ use to revise the YAML DSL.
 Reply with <= 150 words of plain text. The reply MUST:
 1. Name the specific node(s) / edge(s) / parameter(s) to change.
 2. Explain which violation category each change is expected to clear.
-3. If the issue cannot be fixed at the design level (e.g. the PDK
-   simply doesn't have a fitting cell), say exactly: "escalate to human".
+3. End with a final line — on its own — containing exactly one of:
+       DECISION: RETRY
+       DECISION: ESCALATE
+   Pick ``ESCALATE`` only when the issue genuinely cannot be fixed at
+   the design level (e.g. the PDK has no fitting cell). In every other
+   case, pick ``RETRY``. Never put the word "escalate" anywhere else —
+   keep it only inside this final decision line.
 
 Do NOT output YAML. Do NOT output code. Do NOT preamble with "Here is".

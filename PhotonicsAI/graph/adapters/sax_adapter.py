@@ -28,7 +28,33 @@ def _get_all_models() -> dict[str, Any]:
     return all_models
 
 
-def collect_required_models(component) -> tuple[list[str], dict]:
+def _find_missing_model_context(netlist: Any, missing: list[str]) -> list[str]:
+    """Return lightweight paths where missing model names appear."""
+    targets = set(missing)
+    hits: list[str] = []
+
+    def _walk(obj: Any, path: str) -> None:
+        if len(hits) >= 10:
+            return
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                key = str(k)
+                next_path = f"{path}.{key}" if path else key
+                if key in targets:
+                    hits.append(f"{key} at {next_path}")
+                if isinstance(v, str) and v in targets:
+                    hits.append(f"{v} at {next_path}")
+                else:
+                    _walk(v, next_path)
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                _walk(item, f"{path}[{i}]")
+
+    _walk(netlist, "")
+    return hits
+
+
+def collect_required_models(component) -> tuple[list[str], dict, list[str]]:
     """Compute SAX required models from a ``gf.Component``.
 
     Mirrors :func:`PhotonicsAI.Photon.DemoPDK.yaml_netlist_to_gds` but
@@ -39,11 +65,22 @@ def collect_required_models(component) -> tuple[list[str], dict]:
     try:
         netlist = component.get_netlist(recursive=True)
         required = sax.get_required_circuit_models(netlist)
+        return list(required), netlist, []
     except Exception as exc:
-        raise NetlistError(
-            f"recursive get_netlist failed: {exc}", stage="get_netlist"
-        ) from exc
-    return list(required), netlist
+        warnings = [
+            "recursive get_netlist failed; fell back to recursive=False "
+            f"like legacy PhIDO: {exc}"
+        ]
+        try:
+            netlist = component.get_netlist(recursive=False)
+            required = sax.get_required_circuit_models(netlist)
+            return list(required), netlist, warnings
+        except Exception as exc2:
+            raise NetlistError(
+                "recursive and non-recursive get_netlist failed: "
+                f"{exc}; fallback: {exc2}",
+                stage="get_netlist",
+            ) from exc2
 
 
 def run_sax_structured(
@@ -64,7 +101,7 @@ def run_sax_structured(
     """
     available = _get_all_models()
     try:
-        required, netlist = collect_required_models(component)
+        required, netlist, warnings = collect_required_models(component)
     except NetlistError as exc:
         return (
             SaxReport(ok=False, errors=[str(exc)]),
@@ -73,16 +110,16 @@ def run_sax_structured(
 
     missing = [name for name in required if name not in available]
     if missing:
-        report = SaxReport(
-            ok=False,
-            missing_models=sorted(set(missing)),
-            required_models=required,
-        )
+        diagnostics = _find_missing_model_context(netlist, missing)
         # The error is *raised* (not just returned) so the executor can
         # decide whether to swallow it. We still surface a populated
         # report via the exception, mirroring the SaxModelMissingError
         # contract from REFACTOR_PLAN.md §4.2.
-        raise SaxModelMissingError(missing=missing, available=list(available))
+        raise SaxModelMissingError(
+            missing=missing,
+            available=list(available),
+            diagnostics=diagnostics,
+        )
 
     try:
         circuit, _info = sax.circuit(netlist, available, backend=backend)
@@ -91,12 +128,13 @@ def run_sax_structured(
             SaxReport(
                 ok=False,
                 errors=[f"sax.circuit failed: {exc}"],
+                warnings=warnings,
                 required_models=required,
             ),
             None,
         )
 
     return (
-        SaxReport(ok=True, required_models=required),
+        SaxReport(ok=True, warnings=warnings, required_models=required),
         circuit,
     )

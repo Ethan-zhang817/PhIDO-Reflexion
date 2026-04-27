@@ -6,8 +6,9 @@ from PhotonicsAI.graph.adapters.eda_report import EdaReport
 from PhotonicsAI.graph.state import PhIDOState
 
 
-def _verdict(report: EdaReport) -> str:
-    """Compute the textual verdict; pure function for testability."""
+def evaluator_verdict(report: EdaReport, *, require_drc_pass: bool = True) -> str:
+    """``pass`` / ``fail`` for routing; ``require_drc_pass=False`` ignores DRC
+    violation count (GDS + SAX 仍须成功)."""
     gds = report.get_gds()
     sax = report.get_sax()
     drc = report.get_drc()
@@ -16,9 +17,8 @@ def _verdict(report: EdaReport) -> str:
         return "fail"
     if not sax.ok or sax.missing_models:
         return "fail"
-    # DRC: skipped (e.g. KLayout missing) is a soft pass with a warning.
-    # The flag lives on `drc.skipped_reason`; the executor sets ok=True
-    # in that case so this branch does not over-trigger.
+    if not require_drc_pass:
+        return "pass"
     if drc.skipped_reason:
         return "pass"
     if drc.n_violations > 0:
@@ -33,12 +33,7 @@ def evaluator_node(state: PhIDOState) -> dict:
     edge re-derives it from ``eda_report`` to keep state and routing
     decisions decoupled. We still surface it for UI / log readability.
     """
-    report = state.get("eda_report")
-    if report is None:
-        verdict = "fail"
-    else:
-        verdict = _verdict(report)
-    return {"timings": {**(state.get("timings") or {}), "evaluator_verdict": 0.0}}  # noop write; verdict in route fn
+    return {"timings": {**(state.get("timings") or {}), "evaluator_verdict": 0.0}}
 
 
 def route_after_evaluator(state: PhIDOState) -> str:
@@ -46,4 +41,7 @@ def route_after_evaluator(state: PhIDOState) -> str:
     report = state.get("eda_report")
     if report is None:
         return "fail"
-    return _verdict(report)
+    if isinstance(report, dict):
+        report = EdaReport.model_validate(report)
+    require = state.get("require_drc_pass", True)
+    return evaluator_verdict(report, require_drc_pass=require)

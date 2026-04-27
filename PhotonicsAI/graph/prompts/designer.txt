@@ -19,10 +19,77 @@ PDK constraints:
 - Minimum spacing: 0.13 um
 - Ports are labelled o1..oN counter-clockwise around each rectangular cell.
 
+== Params and units ==
+Each ``nodes.<id>.params`` field must use **only** keyword names accepted by
+that cell’s ``@gf.cell`` in ``PhotonicsAI/KnowledgeBase/DesignLibrary`` (the
+file name matches the component string). For example ``_directional_coupler``
+takes ``length``, ``gap``, ``dy``, ``dx`` in **micrometres** — not ``width``,
+``wavelength``, or ``waveguide_width``. Use ``length`` (not
+``coupling_length``) for the coupling region. SI metre literals like
+``2e-6`` / ``200e-9`` may be auto-converted to µm for ``length``/``gap``.
+Do **not** put numeric values in quotes (e.g. avoid ``length: "2.0"``); use
+plain YAML numbers or scientific notation so tools receive floats, not strings.
+
 {reflection_section}
+
+If the latest reflection is about **routing**, **same angle**, **DRC spacing**,
+or **placement scaling**, keep the existing circuit topology fixed: do **not**
+add/remove/change ``edges`` and do **not** change top-level ``ports``. Only edit
+``placement`` and, when explicitly justified, component ``params``. A layout
+routing retry is not permission to invent extra optical links.
 
 == Output format ==
 Output ONLY a single YAML document with the circuit DSL. Do NOT add
-preambles, code fences, comments, or explanations. The document MUST
-parse with `yaml.safe_load` and contain top-level keys `doc`, `nodes`,
-`edges`, `properties`.
+preambles, code fences, comments, explanations, or a top-level wrapper
+key (no `CIRCUIT_xxx:` namespace). The document MUST parse with
+`yaml.safe_load` and its top level MUST be a mapping with keys `doc`,
+`nodes`, `edges`, `properties`. `nodes` and `edges` MUST themselves be
+mappings keyed by id (never YAML sequences / lists, never a single string
+value). For a single unconnected block, use `edges: {{}}` (empty mapping).
+For ``_directional_coupler`` use `params: length`, `gap`, `dy`, `dx` in µm; do
+**not** treat ``length``/``dy`` or ``gap``/``dx`` as interchangeable renames.
+The EDA stage also applies the same **PDK default parameters** as legacy
+PhIDO (``get_ports_info`` / ``get_params``); you may omit keys you are happy
+to leave at library defaults. For ``_directional_coupler`` never set
+``dy`` or ``dx`` to 0 (they are bend/port spacing in µm, not "unused");
+omit them to use PDK defaults instead.
+If the tool reports **Routing collision** on a **directional coupler** (or
+similar), first relax **params** and/or check **edge links** to that instance
+— do not only move other nodes' ``placement`` while leaving the same coupler
+geometry and port fan-in unchanged.
+SAX may report **missing_models** with names like ``Unnamed_NN``: those are
+**internal instance ids**, not user port names. Build the circuit from **named
+PDK cells** in the list above and avoid ad-hoc assemblies that leave anonymous
+sub-cells in the netlist, or SAX cannot find S-parameter models for them.
+
+Edge links use the exact form ``"<src_node>,o<port>: <dst_node>,o<port>"``
+— note the ``o`` prefix on each port number and the single space after
+the colon. Top-level ``ports`` is a mapping from external port name to
+the instance port it exposes, e.g. ``o1: N1,o1``; list every port that
+is not consumed by an edge.
+
+Minimal example (shape only — pick real cells from the list above):
+
+doc:
+  title: short title
+  description: one-line summary
+nodes:
+  N1:
+    component: <cell_name>
+    params: {{}}
+    properties: {{ports: 1x2}}
+    placement: {{x: 0, y: 0, rotation: 0}}
+  N2:
+    component: <cell_name>
+    params: {{}}
+    properties: {{ports: 1x1}}
+    placement: {{x: 50, y: 0, rotation: 0}}
+edges:
+  E1:
+    link: "N1,o2: N2,o1"
+    properties: {{type: route}}
+ports:
+  o1: N1,o1
+  o2: N1,o3
+properties:
+  pdk: cband

@@ -1,11 +1,13 @@
 """Graph wiring for the PhIDO Reflexion PoC.
 
-Topology (REFACTOR_PLAN.md §3.2)::
+Topology::
 
-    START -> designer -> eda_executor -> evaluator
+    START -> entity_extraction -> component_selection -> schematic_generation
+        -> eda_executor -> evaluator
         evaluator --pass--> END
         evaluator --fail--> reflector
             reflector --retry<N--> designer
+            designer -> eda_executor
             reflector --retry>=N or "escalate to human"--> human_escalation
                 human_escalation -- override/hint --> designer
                 human_escalation -- abort        --> END
@@ -20,13 +22,19 @@ from langgraph.graph import END, START, StateGraph
 
 from PhotonicsAI.config import PATH
 from PhotonicsAI.graph.nodes import (
+    component_selection_node,
     designer_node,
     eda_executor_node,
+    entity_extraction_node,
     evaluator_node,
     human_escalation_node,
     reflector_node,
+    route_after_component_selection,
+    route_after_entity_extraction,
     route_after_evaluator,
     route_after_reflector,
+    route_after_schematic_generation,
+    schematic_generation_node,
 )
 from PhotonicsAI.graph.state import PhIDOState
 from PhotonicsAI.graph.tracing import maybe_enable_langsmith
@@ -39,14 +47,31 @@ def build_graph() -> StateGraph:
     """Construct the (uncompiled) ``StateGraph``."""
     g: StateGraph = StateGraph(PhIDOState)
 
+    g.add_node("entity_extraction", entity_extraction_node)
+    g.add_node("component_selection", component_selection_node)
+    g.add_node("schematic_generation", schematic_generation_node)
     g.add_node("designer", designer_node)
     g.add_node("eda_executor", eda_executor_node)
     g.add_node("evaluator", evaluator_node)
     g.add_node("reflector", reflector_node)
     g.add_node("human_escalation", human_escalation_node)
 
-    g.add_edge(START, "designer")
-    g.add_edge("designer", "eda_executor")
+    g.add_edge(START, "entity_extraction")
+    g.add_conditional_edges(
+        "entity_extraction",
+        route_after_entity_extraction,
+        {"ready": "component_selection", "fail": "human_escalation"},
+    )
+    g.add_conditional_edges(
+        "component_selection",
+        route_after_component_selection,
+        {"ready": "schematic_generation", "fail": "human_escalation"},
+    )
+    g.add_conditional_edges(
+        "schematic_generation",
+        route_after_schematic_generation,
+        {"ready": "eda_executor", "fail": "human_escalation"},
+    )
     g.add_edge("eda_executor", "evaluator")
     g.add_conditional_edges(
         "evaluator",
@@ -58,6 +83,7 @@ def build_graph() -> StateGraph:
         route_after_reflector,
         {"retry": "designer", "escalate": "human_escalation"},
     )
+    g.add_edge("designer", "eda_executor")
     g.add_conditional_edges(
         "human_escalation",
         _route_after_escalation,

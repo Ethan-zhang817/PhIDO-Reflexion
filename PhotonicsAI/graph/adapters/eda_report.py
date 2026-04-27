@@ -31,9 +31,13 @@ class GdsReport(BaseModel):
 
     ok: bool = True
     errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    """Non-fatal notes (e.g. "auto-derived top-level ports")."""
     routing_failed: bool = False
     layer_overflow: bool = False
     gds_path: Optional[str] = None
+    gds_png_path: Optional[str] = None
+    """PNG snapshot of the layout (from ``gf.Component.plot``)."""
 
 
 class SaxReport(BaseModel):
@@ -42,6 +46,7 @@ class SaxReport(BaseModel):
     ok: bool = True
     missing_models: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     required_models: list[str] = Field(default_factory=list)
 
 
@@ -91,6 +96,21 @@ class EdaReport(BaseModel):
         return self.stages.get("drc", DRCReport())  # type: ignore[return-value]
 
 
+def _truncate(text: str, *, limit: int = 400) -> str:
+    """Return ``text`` collapsed to ``limit`` chars with a "..." marker.
+
+    Collapses newlines/whitespace to keep the summary one-error-per-line
+    legible; real error listings (like pydantic's "valid values") are
+    almost always uninteresting past the first sentence.
+    """
+    if not text:
+        return ""
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 3].rstrip() + "..."
+
+
 def summarize_report(report: EdaReport, *, top_k: int = 3) -> str:
     """Generate a short human/LLM readable summary for the Reflector prompt.
 
@@ -113,7 +133,12 @@ def summarize_report(report: EdaReport, *, top_k: int = 3) -> str:
             flags.append("layer overflow")
         flags_text = (" [" + ", ".join(flags) + "]") if flags else ""
         first_error = gds.errors[0] if gds.errors else "unknown error"
-        parts.append(f"GDSFactory: FAIL{flags_text}: {first_error}")
+        # gdsfactory pydantic validation errors embed the whole PDK cell
+        # catalog (several kB). Truncate aggressively so the Reflector
+        # gets the actionable head of the error, not an 8-kB wall.
+        parts.append(
+            f"GDSFactory: FAIL{flags_text}: {_truncate(first_error, limit=400)}"
+        )
 
     if sax.ok and not sax.missing_models:
         parts.append(
@@ -130,6 +155,8 @@ def summarize_report(report: EdaReport, *, top_k: int = 3) -> str:
         )
         if sax.errors:
             parts.append(f"  sax error: {sax.errors[0]}")
+        if sax.warnings:
+            parts.append(f"  sax warning: {sax.warnings[0]}")
 
     if drc.skipped_reason:
         parts.append(f"DRC: skipped ({drc.skipped_reason})")

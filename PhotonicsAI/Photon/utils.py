@@ -155,16 +155,22 @@ def dsl_to_gf(circuit_dsl):
         placements[node_id]["y"] = node_info["placement"]["y"]
         placements[node_id]["rotation"] = node_info["placement"]["rotation"]
 
-    gf_netlist = {
+    gf_netlist: dict = {
         "instances": new_nodes,
-        "routes": {
-            "optical": {
-                "links": new_routes,  # Move the list of links under routes: optical: links
-            }
-        },
         "placements": placements,
         "ports": circuit_dsl["ports"],
     }
+    if new_routes:
+        gf_netlist["routes"] = {
+            "optical": {
+                "links": new_routes,
+            }
+        }
+    else:
+        # gdsfactory ``read.from_yaml`` can raise *list index out of range* for
+        # ``{optical: {links: {}}}`` with a single instance; a bare empty
+        # ``routes`` is accepted (single block, no inter-instance links).
+        gf_netlist["routes"] = {}
 
     return gf_netlist
 
