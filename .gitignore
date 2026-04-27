@@ -124,6 +124,9 @@ PhotonicsAI/Photon/drc/*.tmp
 PhotonicsAI/Photon/CIRCUIT_*.yaml
 !PhotonicsAI/Photon/CIRCUIT_wdd0.yaml
 
+# Local API dump / scratch (do not commit)
+anthropic_response.yml
+
 # Matplotlib / pyplot rendered output if dropped at repo root
 matplotlib_*.png
 
